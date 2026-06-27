@@ -1,0 +1,6 @@
+# Byte-level BPE tokenizer (bpe_tokenizer/, train.py, validate.py)
+regex>=2024.11.6
+
+# Learning notebook (tokenization.ipynb) — optional
+jupyter>=1.0.0
+ipykernel>=6.0.0

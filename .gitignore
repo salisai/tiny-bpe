@@ -1,0 +1,58 @@
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Type checkers
+.mypy_cache/
+.ruff_cache/
+.pytype/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Trained tokenizer outputs (retrain with train.py)
+tokenizer.json
+*_tokenizer.json
+output/
+
+# Local training data (keep large corpora out of the repo)
+corpus/
+data/
+
+# Environment / secrets
+.env
+.env.*
