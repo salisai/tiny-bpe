@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-"""Quick validation — run after training or code changes."""
-
 from bpe_tokenizer import BPETokenizer
 
 CORPUS = """
