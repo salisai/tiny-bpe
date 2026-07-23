@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import heapq
 from collections import defaultdict
 from typing import Dict, Iterable, List, Sequence, Tuple
 
@@ -17,7 +18,7 @@ def get_pair_counts(ids: Sequence[int]) -> Dict[Pair, int]:
     return counts
 
 
-# list-based 
+# list-based - this function is not used
 def merge_ids(ids: Sequence[int], pair: Pair, new_id: int) -> List[int]:
     """Replace every non-overlapping occurrence of `pair` with `new_id`."""
     first, second = pair
@@ -78,35 +79,112 @@ def train_bpe(
     num_merges = max(0, vocab_size - 256)
     merges: Dict[Pair, int] = {}
 
-    for step in range(num_merges):
-        pair_counts: Dict[Pair, int] = defaultdict(int)
-        
-        for word, freq in chunks.items():
-            if len(word) < 2:
-                continue
-            
-            for a, b in zip(word, word[1:]):
-                pair_counts[(a, b)] += freq
+    if num_merges == 0:
+        return merges
 
-        if not pair_counts:
+    words: Dict[int, List[int]] = {}
+    freqs: Dict[int, int] = {}
+
+    for wid, (word, freq) in enumerate(chunks.items()):
+        words[wid] = list(word) # mutable
+        freqs[wid] = freq
+
+    pair_counts: Dict[Pair, int] = defaultdict(int)
+    pair_to_words: Dict[Pair, set] = defaultdict(set)
+
+    for wid, word in words.items():
+        if len(word) < 2: 
+            continue 
+
+        f = freqs[wid]
+        for a, b in zip(word, word[1:]):
+            pair_counts[(a, b)] += f
+            pair_to_words[(a, b)].add(wid)
+
+    
+    heap: List[tuple] = [
+        (-cnt, (-a, -b), (a, b)) for (a, b), cnt in pair_counts.items()
+    ]
+    heapq.heapify(heap)
+
+    # whenever a  pair's count change after merge, we need to add an update entry
+    def push(pair: Pair) -> None: 
+        cnt = pair_counts.get(pair, 0)
+       
+        if cnt > 0: 
+            a, b = pair  
+            heapq.heappush(heap, (-cnt, (-a, -b), pair))
+
+
+    for step in range(num_merges):
+        best_pair = None 
+        best_count = 0 
+
+        while heap: 
+            neg_cnt, _, pair = heapq.heappop(heap)
+            current = pair_counts.get(pair, 0)
+            if current > 0 and -neg_cnt == current: 
+                best_pair, best_count = pair, current 
+                break 
+
+        if best_pair is None:
             break
 
-        # Highest count wins; tie-break lexicographically for reproducibility.
-        best_pair = max(pair_counts, key=lambda p: (pair_counts[p], p))
-        new_id = 256 + step
-        merges[best_pair] = new_id
+        new_id = 256 + step 
+        merges[best_pair] = new_id 
 
-        new_chunks: Dict[Word, int] = defaultdict(int)
+        affected = list(pair_to_words.get(best_pair, ()))
 
-        for word, freq in chunks.items():
-            new_word = merge_word(word, best_pair, new_id)
-            new_chunks[new_word] += freq
-        chunks = dict(new_chunks)
+        for wid in affected:
+            word = words[wid]
+            if len(word) < 2: #no pairing needed
+                continue
+            f = freqs[wid]
+ 
+            old_local: Dict[Pair, int] = defaultdict(int)
+            for a, b in zip(word, word[1:]):
+                old_local[(a, b)] += 1
+ 
+            new_word = _merge_word(word, best_pair, new_id)
+ 
+            new_local: Dict[Pair, int] = defaultdict(int)
+            for a, b in zip(new_word, new_word[1:]):
+                new_local[(a, b)] += 1
 
+            for p in old_local:
+                pair_to_words[p].discard(wid)
+            for p in new_local:
+                pair_to_words[p].add(wid)
+ 
+            touched = set(old_local) | set(new_local)
+            for p in old_local:
+                pair_counts[p] -= old_local[p] * f
+            for p in new_local:
+                pair_counts[p] += new_local[p] * f
+ 
+            for p in touched:
+                cnt = pair_counts.get(p, 0)
+                if cnt <= 0:
+                    pair_counts.pop(p, None)
+                    pair_to_words.pop(p, None)
+                else:
+                    push(p)  # fresh heap entry reflecting the new count
+ 
+            words[wid] = new_word
+ 
+        pair_counts.pop(best_pair, None)
+        pair_to_words.pop(best_pair, None)
+ 
         if show_progress and (step + 1) % 500 == 0:
-            print(f"  merge {step + 1}/{num_merges}  pair={best_pair}  freq={pair_counts[best_pair]}")
-
+            print(
+                f"  merge {step + 1}/{num_merges}  "
+                f"pair={best_pair}  freq={best_count}  "
+                f"affected_words={len(affected)}"
+            )
+ 
     return merges
+        
+        
 
 
 def encode_chunk(ids: List[int], ranks: Dict[Pair, int], merge_out: Dict[Pair, int]) -> List[int]:
@@ -153,3 +231,21 @@ def chunks_from_texts(
             chunks[tuple(piece.encode("utf-8"))] += 1 #convert to utf-8 bytes
 
     return dict(chunks)
+
+
+
+
+def _merge_word(word: Sequence[int], pair: Pair, new_id: int) -> List[int]:
+    """Same semantics as core.merge_word, operating on a plain list."""
+    first, second = pair
+    out: List[int] = []
+    i, n = 0, len(word)
+    while i < n:
+        if i < n - 1 and word[i] == first and word[i + 1] == second:
+            out.append(new_id)
+            i += 2
+        else:
+            out.append(word[i])
+            i += 1
+    return out
+ 
