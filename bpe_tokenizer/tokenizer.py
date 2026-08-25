@@ -15,6 +15,13 @@ from .encode import encode_chunk
 from .patterns import CODE_AWARE_PATTERN
 from .io import stream_files
 
+try:
+    from .core_native import FastEncoder as _FastEncoder
+    _HAS_NATIVE = True
+except ImportError:
+    _FastEncoder = None
+    _HAS_NATIVE = False
+
 Pair = tuple[int, int]
 
 
@@ -66,9 +73,12 @@ class BPETokenizer:
 
         self._vocab = build_vocab_from_merges(self.merges)
 
-        #add special tokens to vocab
+        # add special tokens to vocab
         for token_id, token_str in self.inverse_special.items():
             self._vocab[token_id] = token_str.encode("utf-8")
+
+        # C++ fast path (pybind11); None when the extension is not built
+        self._encoder = _FastEncoder(self.merges) if _HAS_NATIVE else None
 
 
 
@@ -159,7 +169,52 @@ class BPETokenizer:
         return ids
 
     def encode_batch(self, texts: Sequence[str], **kwargs) -> List[List[int]]:
-        return [self.encode(t, **kwargs) for t in texts]
+        allowed_special = kwargs.get("allowed_special")
+        num_threads = int(kwargs.get("num_threads", 0))
+
+        if self._encoder is None:
+            return [self.encode(t, allowed_special=allowed_special) for t in texts]
+
+        allowed = allowed_special or set()
+
+        # Split specials first (Python, cheap), then hand all text segments to
+        # the native thread pool in one GIL-released call.
+        plan: List[List[tuple]] = []
+        text_segments: List[List[bytes]] = []
+        for text in texts:
+            if self.special_tokens:
+                segs = self._split_special(text, allowed)
+            else:
+                segs = [("text", text)]
+            row: List[tuple] = []
+            for kind, segment in segs:
+                if kind == "special":
+                    row.append(("special", segment))
+                else:
+                    pieces = [
+                        p.encode("utf-8")
+                        for p in self._regex.findall(segment)
+                        if p
+                    ]
+                    row.append(("text", len(text_segments)))
+                    text_segments.append(pieces)
+            plan.append(row)
+
+        if not text_segments:
+            return [[] for _ in texts]
+
+        encoded = self._encoder.encode_batch(text_segments, num_threads)
+
+        out: List[List[int]] = []
+        for row in plan:
+            ids: List[int] = []
+            for kind, ref in row:
+                if kind == "special":
+                    ids.append(self.special_tokens[ref])
+                else:
+                    ids.extend(encoded[ref])
+            out.append(ids)
+        return out
 
     def decode(self, ids: Sequence[int], *, errors: str = "replace") -> str:
         """Token ids -> text. Invalid UTF-8 byte runs are handled per `errors`."""
@@ -221,12 +276,16 @@ class BPETokenizer:
 
 
     def _encode_text(self, text: str) -> List[int]:
+        pieces = [p.encode("utf-8") for p in self._regex.findall(text) if p]
+        if not pieces:
+            return []
+
+        if self._encoder is not None:
+            return self._encoder.encode_pieces(pieces)
+
         ids: List[int] = []
-        
-        for piece in self._regex.findall(text):
-            if not piece:
-                continue
-            chunk = list(piece.encode("utf-8"))
+        for piece in pieces:
+            chunk = list(piece)
             ids.extend(encode_chunk(chunk, self._ranks, self._merge_out))
         return ids
 
