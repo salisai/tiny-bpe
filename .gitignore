@@ -56,3 +56,8 @@ data/
 # Environment / secrets
 .env
 .env.*
+
+.codebase.md 
+.improvements.md 
+codebase.md 
+improvements.md 

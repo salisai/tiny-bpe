@@ -9,10 +9,10 @@ import regex
 from .core import (
     build_vocab_from_merges,
     chunks_from_texts,
-    encode_chunk,
     train_bpe,
 )
-from .patterns import GPT2_PATTERN
+from .encode import encode_chunk
+from .patterns import CODE_AWARE_PATTERN
 from .io import stream_files
 
 Pair = tuple[int, int]
@@ -30,7 +30,7 @@ class BPETokenizer:
         self,
         *,
         merges: Optional[Mapping[Pair, int]] = None,
-        pattern: str = GPT2_PATTERN,
+        pattern: str = CODE_AWARE_PATTERN,
         special_tokens: Optional[Mapping[str, int]] = None,
     ) -> None:
         self.pattern = pattern
@@ -38,6 +38,17 @@ class BPETokenizer:
 
         self.merges: Dict[Pair, int] = dict(merges or {})
         self.special_tokens: Dict[str, int] = dict(special_tokens or {})
+
+
+        if self.special_tokens: 
+            sorted_specials = sorted(self.special_tokens, key=len, reverse=True)
+
+            pattern = "(" + "|".join(regex.escape(s) for s in sorted_specials) + ")"
+            self._special_regex = regex.compile(pattern)
+        else: 
+            self._special_regex = None 
+
+
         self.inverse_special: Dict[int, str] = {v: k for k, v in self.special_tokens.items()} #for decoding 
 
         # rank: lower = merge earlier during encoding
@@ -67,7 +78,7 @@ class BPETokenizer:
         texts: Union[str, Iterable[str]],
         vocab_size: int = 8192,
         *,
-        pattern: str = GPT2_PATTERN,
+        pattern: str = CODE_AWARE_PATTERN,
         special_tokens: Optional[Sequence[str]] = None,
         show_progress: bool = False,
     ) -> "BPETokenizer":
@@ -187,7 +198,7 @@ class BPETokenizer:
         merges = {(int(a), int(b)): int(idx) for a, b, idx in data["merges"]}
         return cls(
             merges=merges,
-            pattern=data.get("pattern", GPT2_PATTERN),
+            pattern=data.get("pattern", CODE_AWARE_PATTERN),
             special_tokens=data.get("special_tokens", {}),
         )
 
@@ -219,27 +230,21 @@ class BPETokenizer:
             ids.extend(encode_chunk(chunk, self._ranks, self._merge_out))
         return ids
 
-    def _split_special(self, text: str, allowed: set[str]) -> List[tuple[str, str]]:
-        """Split text into ('text'|'special', segment) tuples."""
-        if not self.special_tokens:
+
+    def _split_special(self, text, allowed):
+        if self._special_regex is None:
             return [("text", text)]
 
-        # Sort longest-first so multi-char specials match correctly
-        tokens = sorted(self.special_tokens.keys(), key=len, reverse=True)
-        escaped = [regex.escape(t) for t in tokens]
-        split_re = regex.compile("(" + "|".join(escaped) + ")")
-
-        parts: List[tuple[str, str]] = []
-        pos = 0
-        for match in split_re.finditer(text):
-            start, end = match.span()
-            if start > pos:
-                parts.append(("text", text[pos:start]))
-            token = match.group(0)
-            if token not in allowed:
-                raise ValueError(f"Disallowed special token in text: {token!r}")
-            parts.append(("special", token))
-            pos = end
-        if pos < len(text):
-            parts.append(("text", text[pos:]))
-        return parts
+        segments = []
+        last_end = 0
+        for m in self._special_regex.finditer(text):
+            tok = m.group(0)
+            if tok not in allowed:
+                raise ValueError(f"special token {tok!r} not in allowed_special")
+            if m.start() > last_end:
+                segments.append(("text", text[last_end:m.start()]))
+            segments.append(("special", tok))
+            last_end = m.end()
+        if last_end < len(text):
+            segments.append(("text", text[last_end:]))
+        return segments

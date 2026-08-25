@@ -10,33 +10,6 @@ Pair = Tuple[int, int]
 Word = Tuple[int, ...]
 
 
-def get_pair_counts(ids: Sequence[int]) -> Dict[Pair, int]:
-    """Count consecutive token pairs in a single sequence."""
-    counts: Dict[Pair, int] = defaultdict(int)
-    for a, b in zip(ids, ids[1:]):
-        counts[(a, b)] += 1
-    return counts
-
-
-# list-based - this function is not used
-def merge_ids(ids: Sequence[int], pair: Pair, new_id: int) -> List[int]:
-    """Replace every non-overlapping occurrence of `pair` with `new_id`."""
-    first, second = pair
-    out: List[int] = []
-
-    i = 0
-    n = len(ids)
-
-    while i < n:
-        if i < n - 1 and ids[i] == first and ids[i + 1] == second:
-            out.append(new_id)
-            i += 2
-        else:
-            out.append(ids[i])
-            i += 1
-    return out
-
-
 def merge_word(word: Word, pair: Pair, new_id: int) -> Word:
     """Same as merge_ids but returns a tuple (hashable chunk key)."""
     first, second = pair
