@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-"""Train a byte-level BPE tokenizer from text file(s)."""
-
 from __future__ import annotations
 
 import argparse

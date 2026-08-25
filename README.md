@@ -4,7 +4,7 @@ A small Python project for learning how LLM tokenizers work. It implements byte-
 
 This is for learning and experimentation, not a drop-in replacement for production tokenizers like Hugging Face or tiktoken. The goal is to understand the full pipeline from raw text to token IDs.
 
-For a deeper walkthrough of tokenization and Byte Pair Encoding (BPE), see the blog post below. Click the image to read the full article on Medium.
+**For a deeper walkthrough of tokenization and Byte Pair Encoding (BPE), see the blog post below. Click the image to read the full article on Medium.**
 
 [![Byte Pair Encoding (BPE) — read the full tokenization blog on Medium](./images/bpe.png)](https://medium.com/@salisai/tokenization-3488678fd811?sharedUserId=salisai)
 
@@ -143,3 +143,6 @@ Because everything starts at the byte level, the same tokenizer handles any lang
 | GPT-2 scale | ~50,000 |
 
 A healthy compression ratio on your training data is roughly 3x to 5x (bytes per token). If compression is much higher, merges may be too aggressive for the model to learn useful subword structure.
+
+
+Note: this project was inspired, by Karpathy min-BPE, but i took it a some 2 level deeper. 
